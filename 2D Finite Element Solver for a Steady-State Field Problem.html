@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>2D Finite Element Solver for a Steady-State Field Problem</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#eef2f5;--panel:#fff;--ink:#12263a;--mute:#52667a;--line:#c9d4de;--fem:#1b6ca8;--exact:#b3205f}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1a25;--panel:#16232f;--ink:#e6edf3;--mute:#9fb2c3;--line:#2b3d4e;--fem:#5db0ee;--exact:#ff6fa5}}
+:root[data-theme="dark"]{--bg:#0f1a25;--panel:#16232f;--ink:#e6edf3;--mute:#9fb2c3;--line:#2b3d4e;--fem:#5db0ee;--exact:#ff6fa5}
+*,*:before,*:after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:860px;margin:0 auto;padding:32px 20px 56px}
+h1{font:700 clamp(28px,5vw,40px)/1.15 Georgia,"Times New Roman",serif;margin:0 0 12px;letter-spacing:-.01em}
+h2{font:700 22px/1.3 Georgia,serif;margin:40px 0 10px}
+p{margin:0 0 12px;max-width:68ch}
+.lead{font-size:18px;color:var(--mute)}
+.tags{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0 0;padding:0;list-style:none}
+.tags li{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:2px 12px;font-size:14px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px}
+.card{display:grid;gap:6px;margin-bottom:28px}
+.card small{color:var(--mute)}
+.demo header{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;margin-bottom:12px}
+.demo label{font-weight:600}
+input[type=range]{flex:1 1 200px;accent-color:var(--fem)}
+.modes{display:flex;flex-wrap:wrap;gap:6px 18px;margin-bottom:12px}
+.modes label{font-weight:400}
+canvas{display:block;width:min(100%,360px);aspect-ratio:1;border:1px solid var(--line);image-rendering:auto}
+.bar{height:10px;width:min(100%,360px);margin-top:8px;border-radius:2px;background:linear-gradient(90deg,#142850,#1b6ca8,#f0dc78)}
+.scale{display:flex;justify-content:space-between;width:min(100%,360px);font-size:13px;color:var(--mute)}
+.stats{display:flex;flex-wrap:wrap;gap:4px 28px;margin-top:10px;font-size:14px;color:var(--mute)}
+.stats b{color:var(--ink)}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:420px;font-size:15px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:right}
+th:first-child,td:first-child{text-align:left}
+ul.find{padding-left:20px;margin:0}ul.find li{margin-bottom:8px;max-width:68ch}
+pre{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;overflow-x:auto;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace}
+</style>
+</head>
+<body>
+<main>
+<section class="panel card" aria-label="Portfolio card">
+  <h1>2D Finite Element Solver for a Steady-State Field Problem</h1>
+  <p class="lead">A bilinear-element finite element solver, written in Fortran, that computes a field such as temperature across a square plate, along with its gradient. Validated against an exact Fourier series solution.</p>
+  <ul class="tags"><li>Fortran</li><li>Bilinear (Q4) elements</li><li>SOR iteration</li><li>Penalty method</li><li>Fourier series</li><li>Excel post-processing</li></ul>
+  <small>University of Thessaly, Mechanical Engineering. Finite Element Method course, Assignment 2</small>
+</section>
+
+<h2>The problem</h2>
+<p>Find u on the unit square that satisfies the equation below, with u = 0 on all four edges:</p>
+<p><code>∇²u − u = −1,&nbsp; Ω = [0,1] × [0,1]</code></p>
+<p>Read as heat conduction, u is temperature at steady state. The Laplacian term is conduction, the constant is a heat source, and u = 0 on the edges holds the boundary at a fixed temperature.</p>
+
+<h2>Try it: mesh refinement</h2>
+<div class="panel demo">
+  <header>
+    <label for="n">Mesh: <output id="nv">10 × 10</output></label>
+    <input id="n" type="range" min="2" max="20" value="10">
+  </header>
+  <div class="modes" role="radiogroup" aria-label="Field to display">
+    <label><input type="radio" name="m" value="fem" checked> FEM solution</label>
+    <label><input type="radio" name="m" value="exact"> Exact solution</label>
+    <label><input type="radio" name="m" value="err"> Absolute error</label>
+  </div>
+  <canvas id="c" width="160" height="160" role="img" aria-label="Heat map of the selected field over the unit square"></canvas>
+  <div class="bar"></div>
+  <div class="scale"><span id="lo">0</span><span id="hi">0.075</span></div>
+  <div class="stats"><span>Centre value, FEM: <b id="cf">–</b></span><span>Exact: <b id="ce">–</b></span><span>Max nodal error: <b id="er">–</b></span></div>
+  <div class="stats">The solver runs live in your browser. Solution and exact views share one color scale.</div>
+</div>
+
+<h2>Approach</h2>
+<ul class="find">
+<li><b>Mesh.</b> The square is divided into equal rectangles, hx = 1/NEx by hy = 1/NEy. Each element is mapped to a reference square with ξ, η ∈ [−1, 1].</li>
+<li><b>Elements.</b> Four-node bilinear Lagrange elements. Because every element has the same size, the element stiffness matrix and load vector are computed once and added into the global system at each element's node positions.</li>
+<li><b>Boundary conditions.</b> A penalty term is applied at every boundary node to enforce u = 0.</li>
+<li><b>Solver.</b> The system is solved iteratively with successive over-relaxation (SOR).</li>
+<li><b>Gradient.</b> ∂u/∂x and ∂u/∂y come from central differences of nodal values at interior nodes and one-sided differences on the boundary.</li>
+<li><b>Validation.</b> The exact solution is a double Fourier sine series over odd modes, derived by expanding in the eigenfunctions of the homogeneous problem. I compared u and both partial derivatives at every node.</li>
+</ul>
+
+<h2>Results</h2>
+<div class="panel tbl">
+<table>
+<thead><tr><th>Mesh</th><th>Peak error in u</th><th>Peak error in ∂u/∂x, ∂u/∂y</th></tr></thead>
+<tbody>
+<tr><td>2 × 2 (4 elements)</td><td>~0.3</td><td>~0.5</td></tr>
+<tr><td>7 × 7 (49 elements)</td><td>~0.04</td><td>~0.25</td></tr>
+<tr><td>10 × 10 (100 elements)</td><td>~0.025</td><td>~0.2</td></tr>
+</tbody></table>
+</div>
+<p style="margin-top:8px;color:var(--mute);font-size:14px">Relative errors read from the report plots, so values are approximate. The relative measure is largest near the edges, where u approaches zero.</p>
+
+<h2>What I found</h2>
+<ul class="find">
+<li>Gradient values at boundary nodes converge more slowly than at interior nodes, because one-sided differences are less accurate than central ones.</li>
+<li>Moving outward from the centre, u falls, its relative error grows, and the gradient magnitude grows. The heat flux is largest at the boundary.</li>
+<li>The four corners hold the minimum of u. Theory says the gradient is exactly zero there, which seems to conflict with the flux trend above. Mesh error at the corners is the likely reason, and worth a closer look.</li>
+</ul>
+
+<h2>Code excerpt</h2>
+<pre>! SOR sweep: Gauss-Seidel update blended with the previous iterate
+do while (any(abs(Ynew - Yold) > error_lim))
+  Yold = Ynew
+  do i = 1, N
+    s = 0.
+    do j = 1, i-1;   s = s + K(i,j)*Ynew(j);  end do
+    do j = i+1, N;   s = s + K(i,j)*Yold(j);  end do
+    Ynew(i) = (1.-w)*Yold(i) + w*(F(i) - s)/K(i,i)
+  end do
+end do</pre>
+</main>
+
+<script>
+(function(){
+const PI=Math.PI,w=1.8;
+function exact(x,y){let s=0;for(let n=1;n<=21;n+=2)for(let m=1;m<=21;m+=2){const l=(n*PI)**2+(m*PI)**2;s+=16/(n*PI*m*PI*(1+l))*Math.sin(n*PI*x)*Math.sin(m*PI*y)}return s}
+function solve(n){
+  const q=n+1,m=q*q,h=1/n,K=new Float64Array(m*m),F=new Float64Array(m),g=1/Math.sqrt(3),gp=[-g,g];
+  const xi=[-1,1,1,-1],et=[-1,-1,1,1],Ke=[[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]],jac=h*h/4;let fe=0;
+  for(const a of gp)for(const b of gp){
+    const N=[],dx=[],dy=[];
+    for(let i=0;i<4;i++){N[i]=(1+xi[i]*a)*(1+et[i]*b)/4;dx[i]=xi[i]*(1+et[i]*b)/4*2/h;dy[i]=et[i]*(1+xi[i]*a)/4*2/h}
+    for(let i=0;i<4;i++){fe+=N[i]*jac/4;for(let j=0;j<4;j++)Ke[i][j]+=(dx[i]*dx[j]+dy[i]*dy[j]+N[i]*N[j])*jac}
+  }
+  const fl=h*h/4;
+  for(let ey=0;ey<n;ey++)for(let ex=0;ex<n;ex++){
+    const c=[ey*q+ex,ey*q+ex+1,(ey+1)*q+ex+1,(ey+1)*q+ex];
+    for(let i=0;i<4;i++){F[c[i]]+=fl;for(let j=0;j<4;j++)K[c[i]*m+c[j]]+=Ke[i][j]}
+  }
+  const u=new Float64Array(m);
+  for(let it=0;it<5000;it++){
+    let d=0;
+    for(let j=1;j<n;j++)for(let i=1;i<n;i++){
+      const k=j*q+i;let s=0;
+      for(let dj=-1;dj<=1;dj++)for(let di=-1;di<=1;di++){if(di||dj){const nb=k+dj*q+di;s+=K[k*m+nb]*u[nb]}}
+      const v=(1-w)*u[k]+w*(F[k]-s)/K[k*m+k];d=Math.max(d,Math.abs(v-u[k]));u[k]=v;
+    }
+    if(d<1e-11)break;
+  }
+  return u;
+}
+function sample(f,n,x,y){
+  const q=n+1,fx=x*n,fy=y*n,i=Math.min(Math.floor(fx),n-1),j=Math.min(Math.floor(fy),n-1),tx=fx-i,ty=fy-j;
+  return f[j*q+i]*(1-tx)*(1-ty)+f[j*q+i+1]*tx*(1-ty)+f[(j+1)*q+i]*(1-tx)*ty+f[(j+1)*q+i+1]*tx*ty;
+}
+const cv=document.getElementById('c'),ctx=cv.getContext('2d'),S=160,sl=document.getElementById('n');
+const stops=[[20,40,80],[27,108,168],[240,220,120]];
+function ramp(t){t=Math.max(0,Math.min(1,t));const s=t*2,i=Math.min(Math.floor(s),1),f=s-i,a=stops[i],b=stops[i+1];return a.map((v,k)=>Math.round(v+(b[k]-v)*f))}
+function draw(){
+  const n=+sl.value;document.getElementById('nv').textContent=n+' × '+n;
+  const u=solve(n),q=n+1,en=40,ex=new Float64Array((en+1)**2);
+  for(let j=0;j<=en;j++)for(let i=0;i<=en;i++)ex[j*(en+1)+i]=exact(i/en,j/en);
+  const err=new Float64Array(q*q);let emax=0;
+  for(let j=0;j<q;j++)for(let i=0;i<q;i++){const e=Math.abs(u[j*q+i]-exact(i/n,j/n));err[j*q+i]=e;emax=Math.max(emax,e)}
+  const mode=document.querySelector('input[name=m]:checked').value;
+  const f=mode==='exact'?ex:mode==='err'?err:u,fn=mode==='exact'?en:n,top=mode==='err'?(emax||1):0.075;
+  const img=ctx.createImageData(S,S);
+  for(let py=0;py<S;py++)for(let px=0;px<S;px++){
+    const v=sample(f,fn,(px+.5)/S,1-(py+.5)/S),c=ramp(v/top),o=(py*S+px)*4;
+    img.data[o]=c[0];img.data[o+1]=c[1];img.data[o+2]=c[2];img.data[o+3]=255;
+  }
+  ctx.putImageData(img,0,0);
+  document.getElementById('hi').textContent=top.toFixed(mode==='err'?4:3);
+  document.getElementById('cf').textContent=sample(u,n,.5,.5).toFixed(4);
+  document.getElementById('ce').textContent=exact(.5,.5).toFixed(4);
+  document.getElementById('er').textContent=emax.toFixed(5);
+}
+sl.addEventListener('input',draw);
+document.querySelectorAll('input[name=m]').forEach(r=>r.addEventListener('change',draw));
+draw();
+})();
+</script>
+</body>
+</html>

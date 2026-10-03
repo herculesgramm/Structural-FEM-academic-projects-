@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>1D Finite Element Solver for an Axially Loaded Rod</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#eef2f5;--panel:#fff;--ink:#12263a;--mute:#52667a;--line:#c9d4de;--fem:#1b6ca8;--exact:#b3205f}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1a25;--panel:#16232f;--ink:#e6edf3;--mute:#9fb2c3;--line:#2b3d4e;--fem:#5db0ee;--exact:#ff6fa5}}
+:root[data-theme="dark"]{--bg:#0f1a25;--panel:#16232f;--ink:#e6edf3;--mute:#9fb2c3;--line:#2b3d4e;--fem:#5db0ee;--exact:#ff6fa5}
+*,*:before,*:after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:860px;margin:0 auto;padding:32px 20px 56px}
+h1{font:700 clamp(28px,5vw,40px)/1.15 Georgia,"Times New Roman",serif;margin:0 0 12px;letter-spacing:-.01em}
+h2{font:700 22px/1.3 Georgia,serif;margin:40px 0 10px}
+p{margin:0 0 12px;max-width:68ch}
+.lead{font-size:18px;color:var(--mute)}
+.tags{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0 0;padding:0;list-style:none}
+.tags li{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:2px 12px;font-size:14px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px}
+.card{display:grid;gap:6px;margin-bottom:28px}
+.card small{color:var(--mute)}
+.demo header{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;margin-bottom:8px}
+.demo label{font-weight:600}
+input[type=range]{flex:1 1 200px;accent-color:var(--fem)}
+svg{width:100%;height:auto;display:block}
+.stats{display:flex;flex-wrap:wrap;gap:8px 28px;margin-top:8px;font-size:14px;color:var(--mute)}
+.stats b{color:var(--ink)}
+.key span{display:inline-block;width:22px;height:0;border-top:3px solid var(--fem);vertical-align:middle;margin-right:6px}
+.key span.e{border-top:3px dashed var(--exact);margin-left:14px}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:420px;font-size:15px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:right}
+th:first-child,td:first-child{text-align:left}
+ul.find{padding-left:20px;margin:0}ul.find li{margin-bottom:8px;max-width:68ch}
+pre{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;overflow-x:auto;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace}
+</style>
+</head>
+<body>
+<main>
+<section class="panel card" aria-label="Portfolio card">
+  <h1>1D Finite Element Solver for an Axially Loaded Rod</h1>
+  <p class="lead">A Galerkin finite element solver, written in Fortran, that predicts how a rod deforms under distributed and end loads. Validated against closed-form solutions.</p>
+  <ul class="tags"><li>Fortran</li><li>Galerkin FEM</li><li>Thomas algorithm</li><li>Numerical methods</li><li>Excel post-processing</li></ul>
+  <small>University of Thessaly, Mechanical Engineering. Finite Element Method course, Assignment 1</small>
+</section>
+
+<h2>The problem</h2>
+<p>An axially loaded rod is fixed at one end and carries a distributed load p(x) plus a concentrated end load. Its displacement u(x) satisfies:</p>
+<p><code>2u'' − 8u = −p(x),&nbsp; x ∈ [0, π],&nbsp; u'(0) = 3,&nbsp; u(π) = 1</code></p>
+<p>I solved two load cases: a constant load <code>p(x) = 4</code> and a quadratic load <code>p(x) = x²</code>.</p>
+
+<h2>Try it: mesh refinement</h2>
+<div class="panel demo">
+  <header>
+    <label for="n">Elements: <output id="nv">10</output></label>
+    <input id="n" type="range" min="2" max="50" value="10">
+  </header>
+  <svg id="plot" viewBox="0 0 640 300" role="img" aria-label="FEM solution compared with analytical solution"></svg>
+  <div class="key"><span></span>FEM (linear elements)<span class="e"></span>Analytical</div>
+  <div class="stats">Max |error| in u: <b id="err">–</b> <span>Case 1, p(x) = 4. The solver runs live in your browser.</span></div>
+</div>
+
+<h2>Approach</h2>
+<ul class="find">
+<li><b>Discretisation.</b> The rod is split into N equal linear elements with hat-function basis, giving N+1 equations in N+1 unknowns, <code>K·u = F</code>.</li>
+<li><b>Boundary conditions.</b> The end load is added to the first load entry. The fixed displacement at x = π is enforced with a penalty term: a very large number on the last diagonal entry and the same number times the prescribed value on the right-hand side.</li>
+<li><b>Solver.</b> K is tridiagonal, so the system is solved with the Thomas algorithm, which needs only O(N) operations.</li>
+<li><b>Validation.</b> I derived both analytical solutions by hand (homogeneous plus particular solution, then boundary conditions) and compared u and u' at the nodes.</li>
+</ul>
+
+<h2>Results</h2>
+<div class="panel tbl">
+<table>
+<thead><tr><th>Elements</th><th>Peak error in u, case 1</th><th>Peak error in u, case 2</th></tr></thead>
+<tbody>
+<tr><td>2</td><td>~0.39</td><td>~0.43</td></tr>
+<tr><td>10</td><td>~0.20</td><td>~0.16</td></tr>
+<tr><td>25</td><td>~0.06</td><td>~0.08</td></tr>
+<tr><td>50</td><td>~0.035</td><td>~0.02</td></tr>
+</tbody></table>
+</div>
+<p style="margin-top:8px;color:var(--mute);font-size:14px">Relative errors read from the report plots. Peaks sit where u crosses zero, so the relative measure inflates there.</p>
+
+<h2>What I found</h2>
+<ul class="find">
+<li>Both u and u' converge to the analytical solution as the mesh is refined.</li>
+<li>u' converges more slowly than u. It is computed from differences between nodal values, so it is piecewise constant and only first-order accurate.</li>
+<li>u' is accurate at interior nodes but least accurate at the two ends.</li>
+<li>With only 25 elements the displacement error stays within about 15% of the exact answer.</li>
+<li>The same code handles other load shapes by changing only the element load vector. Switching from case 1 to case 2 meant replacing two lines.</li>
+</ul>
+
+<h2>Code excerpt</h2>
+<pre>! Thomas algorithm for the tridiagonal system
+e(1) = A(1,1);  g(1) = B(1)/e(1)
+do i = 2, N
+  e(i) = A(i,i) - A(i,i-1)*A(i-1,i)/e(i-1)
+  g(i) = (B(i) - A(i,i-1)*g(i-1))/e(i)
+end do
+Y(N) = g(N)
+do i = N-1, 1, -1
+  Y(i) = g(i) - A(i,i+1)*Y(i+1)/e(i)
+end do</pre>
+</main>
+
+<script>
+(function(){
+const G=2,B=8,L=Math.PI;
+const ex=x=>0.00094*Math.exp(2*x)-1.499*Math.exp(-2*x)+0.5;
+function fem(n){
+  const h=L/n,m=n+1,d=new Array(m).fill(0),lo=new Array(m).fill(0),up=new Array(m).fill(0),f=new Array(m).fill(0);
+  for(let e=0;e<n;e++){
+    d[e]+=G/h+B*h/3;d[e+1]+=G/h+B*h/3;
+    up[e]=-G/h+B*h/6;lo[e+1]=-G/h+B*h/6;
+    f[e]+=2*h;f[e+1]+=2*h;
+  }
+  f[0]+=-3*G;
+  const big=Math.abs(d[n])*1e6;d[n]=big;f[n]=big*1;
+  const c=[],g=[];c[0]=d[0];g[0]=f[0]/c[0];
+  for(let i=1;i<m;i++){c[i]=d[i]-lo[i]*up[i-1]/c[i-1];g[i]=(f[i]-lo[i]*g[i-1])/c[i];}
+  const u=[];u[m-1]=g[m-1];
+  for(let i=m-2;i>=0;i--)u[i]=g[i]-up[i]*u[i+1]/c[i];
+  return {u,h};
+}
+const svg=document.getElementById('plot'),nv=document.getElementById('nv'),er=document.getElementById('err'),sl=document.getElementById('n');
+const W=640,H=300,pl=44,pr=12,pt=12,pb=28,y0=-1.2,y1=1.2;
+const sx=x=>pl+x/L*(W-pl-pr),sy=y=>pt+(y1-y)/(y1-y0)*(H-pt-pb);
+function draw(){
+  const n=+sl.value;nv.textContent=n;
+  const {u,h}=fem(n);
+  let s='<g stroke="var(--line)" stroke-width="1" fill="var(--mute)" font-size="12">';
+  [-1,-0.5,0,0.5,1].forEach(v=>{s+=`<line x1="${pl}" x2="${W-pr}" y1="${sy(v)}" y2="${sy(v)}"/><text x="${pl-8}" y="${sy(v)+4}" text-anchor="end" stroke="none">${v}</text>`});
+  [0,1,2,3].forEach(v=>{s+=`<text x="${sx(v)}" y="${H-8}" text-anchor="middle" stroke="none">${v}</text>`});
+  s+=`<text x="${sx(L)}" y="${H-8}" text-anchor="end" stroke="none">π</text></g>`;
+  let p='';for(let i=0;i<=200;i++){const x=L*i/200;p+=(i?'L':'M')+sx(x).toFixed(1)+' '+sy(ex(x)).toFixed(1)}
+  s+=`<path d="${p}" fill="none" stroke="var(--exact)" stroke-width="2.5" stroke-dasharray="7 5"/>`;
+  let q='';u.forEach((v,i)=>{q+=(i?'L':'M')+sx(i*h).toFixed(1)+' '+sy(v).toFixed(1)});
+  s+=`<path d="${q}" fill="none" stroke="var(--fem)" stroke-width="2.5"/>`;
+  if(n<=25)u.forEach((v,i)=>{s+=`<circle cx="${sx(i*h)}" cy="${sy(v)}" r="3.5" fill="var(--fem)"/>`});
+  svg.innerHTML=s;
+  let m=0;u.forEach((v,i)=>{m=Math.max(m,Math.abs(v-ex(i*h)))});
+  er.textContent=m.toFixed(4);
+}
+sl.addEventListener('input',draw);draw();
+})();
+</script>
+</body>
+</html>
